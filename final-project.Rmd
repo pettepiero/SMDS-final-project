@@ -1,5 +1,163 @@
 ---
-title: "Pettenà's Final project Notebook"
-output: pdf_document
+title: "Pettena's Final project Notebook"
+output:
+  html_document:
+    df_print: paged
 ---
+#Problem statement
+
+#Dataset description
+The assigned dataset is "auto-mpg.data-original", available at the following link: https://archive.ics.uci.edu/ml/datasets/Auto+MPG.
+It consist of 406 observations of cars consumption, with 8 attributes each.
+
+  "The data concerns city-cycle fuel consumption in miles per gallon,
+    to be predicted in terms of 3 multivalued discrete and 5 continuous
+    attributes." (Quinlan, 1993)
+
+This dataset was taken from the StatLib library which is maintained at Carnegie Mellon University. The dataset was used in the 1983 American Statistical Association Exposition.
+
+##Attribute Information:
+
+1. mpg: continuous
+2. cylinders: multi-valued discrete
+3. displacement: continuous
+4. horsepower: continuous
+5. weight: continuous
+6. acceleration: continuous
+7. model year: multi-valued discrete
+8. origin: multi-valued discrete
+9. car name: string (unique for each instance)
+
+##Importing the dataset
+Let's start by importing the dataset and visualizing its content.
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(ggthemes)
+library(ggcorrplot)
+library(reshape2)
+library(viridis)
+
+theme_set(theme_fivethirtyeight())
+theme_update(axis.title = element_text())
+
+df <- read.table("auto-mpg.data-original", header=FALSE)
+colnames(df) <- c("MPG", "Cylinders", "Displacement", "Horsepower", "Weight", "Acceleration",
+                  "Model year", "Origin", "Car name")
+```
+
+##Preprocessing
+Data cleaning phase
+Should we remove the observations with missing mpg value? Probably yes
+Let's look for the columns of our dataframe that have missing values.
+```{r}
+print(names(which(colSums(is.na(df))>0)))
+df <- na.omit(df)
+print("New size of dataframe is: ")
+dim(df)
+print("So we have removed 406-392=14 rows")
+```
+
+
+```{r}
+#converting df$Cylinders to factor
+df$Cylinders <- as.factor(df$Cylinders)
+
+par(mfrow = c(1, 2))
+
+#Plot histograms of MPG
+hist1 <- ggplot(df, aes(MPG)) + 
+  geom_histogram(bins = 15) + 
+  ggtitle("Histogram of MPG") +
+  xlab("MPG") +
+  ylab("Count")
+
+hist2 <- ggplot(df, aes(MPG, fill= Cylinders)) + 
+  geom_histogram(bins = 15) + 
+  ggtitle("Histogram of MPG with Cylinders distinction") +
+  xlab("MPG") +
+  ylab("Count")
+
+grid.arrange(hist1, hist2, ncol = 2)
+
+#Plot Cylinders pie chart
+ggplot(df, aes(x="", y=Cylinders, fill=Cylinders)) + geom_bar(stat="identity") + coord_polar("y", start=0) +  theme_void() + ggtitle("Pie chart of number of cylinders")
+```
+
+##Possible correlations
+We could look for correlations between different attributes. Let's plot a correlation matrix (or should I look at the covariance matrix??)
+
+```{r}
+df$Cylinders <- as.numeric(df$Cylinders)
+corr <- round(cor(df[, -9]), 3)
+corr
+
+melted_df <- melt(corr)
+head(melted_df)
+
+#myCols <- c("#f7feae", "#b7e6a5", "#7ccba2", "#46aea0", "#089099", "#00718b", "#045275")
+
+corheatmap <- ggplot(data = melted_df, aes(x=Var1, y=Var2, fill=value)) + 
+  labs(title = "Correlation heatmap for auto-mpg dataset",
+       subtitle = "How correlated are the different attributes?",
+       fill = "Correlation value") +
+  geom_tile() + 
+  scale_fill_viridis(option="plasma", direction = 1)
+
+corheatmap
+```
+```{r}
+#function for plotting linear regression results
+ggplotRegression <- function (fit) {
+
+require(ggplot2)
+
+ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+  geom_point() +
+  stat_smooth(method = "lm", col = "red", geom = "smooth", size = 1.3) +
+  labs(subtitle = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                     "Intercept =",signif(fit$coef[[1]],5 ),
+                     " Slope =",signif(fit$coef[[2]], 5),
+                     " P =",signif(summary(fit)$coef[2,4], 5)))
+}
+```
+Looking for a linear relationship between weight and horsepower. Let's try linear regression.
+```{r}
+w.hplm <- lm(formula = Horsepower ~ Weight, data = df)
+summary(w.hplm)
+```
+```{r}
+#plotting the results
+ggplotRegression(w.hplm) +
+  labs(title = "Horsepower and Weight attributes")
+```
+The $R^2$ is acceptable, but it is quite clear that the observations are more disperse around the line for heavier vehicles. This suggests that there is no heteroscedasticity of the residuals. To understand what's happening, let's analyze the residuals.
+
+```{r}
+ggplot(w.hplm, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "red", size = 1.3, alpha = 0.8) +
+  labs(title = "Residual analysis", 
+       subtitle = "of linear regression between Horsepower and Weight",
+       x = "Fitted horsepower",
+       y = "Residual")
+```
+Here, it is clear that the residuals are more spread out for higher horsepower values. We could try to improve our linear regression model by considering other variables, such as the acceleration. One could think that given a model's weight and acceleration, it's nominal horsepower value could be estimated with linear regression.
+
+```{r}
+w.acc.hplm <- lm(formula = Horsepower ~ Weight + Acceleration, data = df)
+summary(w.acc.hplm)
+```
+Plotting the results is not a good idea, as this would be a surface plot. We can, however, analyze the residuals again.
+```{r}
+ggplot(w.acc.hplm, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "red", size = 1.3, alpha = 0.8) +
+  labs(title = "Residual analysis", 
+       subtitle = "of linear regression between Horsepower and Weight",
+       x = "Fitted horsepower",
+       y = "Residual")
+```
+Interestingly enough, now it is clear that for lower power vehicles we are underestimating the power, while for higher power we are overestimating it.
+
 
